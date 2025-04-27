@@ -169,7 +169,9 @@ if __name__ == "__main__":
 
 
     ### Save generated points
-    name = M.utils.get_filename(args.input_mesh)
+    # Extract filename from path manually instead of using M.utils.get_filename
+    name = os.path.splitext(os.path.basename(args.input_mesh))[0]
+    print("name: ", name)
     print("Saving files")
     for file,mesh in mesh_to_save.items():
         M.mesh.save(mesh, f"inputs/{name}_{file}.geogram_ascii")
