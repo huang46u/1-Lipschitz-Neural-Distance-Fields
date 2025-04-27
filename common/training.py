@@ -21,6 +21,11 @@ class Trainer(M.Logger):
         self.scheduler = None
         self.callbacks = []
         self.metrics = dict()
+        self.start_epoch = 0  # Default start from epoch 0
+
+    def set_start_epoch(self, epoch):
+        """Set the epoch to start training from (for resuming from checkpoint)"""
+        self.start_epoch = epoch
     
     def get_optimizer(self, model):
         if "adam" in self.config.optimizer.lower():
@@ -56,7 +61,7 @@ class Trainer(M.Logger):
     def train_lip(self, model):
         self.optimizer = self.get_optimizer(model)
         # self.scheduler = self.get_scheduler()
-        for epoch in range(self.config.n_epochs):
+        for epoch in range(self.start_epoch, self.config.n_epochs):
             self.metrics["epoch"] = epoch+1
             for cb in self.callbacks:
                 cb.callOnBeginTrain(self, model)
@@ -87,7 +92,7 @@ class Trainer(M.Logger):
             
     def train_lip_unsigned(self, model):
         self.optimizer = self.get_optimizer(model)
-        for epoch in range(self.config.n_epochs):
+        for epoch in range(self.start_epoch, self.config.n_epochs):
             self.metrics["epoch"] = epoch+1
             for cb in self.callbacks:
                 cb.callOnBeginTrain(self, model)
@@ -117,7 +122,7 @@ class Trainer(M.Logger):
     def train_full_info(self, model):
         self.optimizer = self.get_optimizer(model)
         # self.scheduler = self.get_scheduler()   
-        for epoch in range(self.config.n_epochs):  # loop over the dataset multiple times
+        for epoch in range(self.start_epoch, self.config.n_epochs):  # loop over the dataset multiple times
             self.metrics["epoch"] = epoch+1
             for cb in self.callbacks:
                 cb.callOnBeginTrain(self, model)
@@ -168,7 +173,7 @@ class Trainer(M.Logger):
         sal_lossfun = SALLoss(1., self.config.metric)
         grad_lossfun = SALDLoss()
 
-        for epoch in range(self.config.n_epochs):  # loop over the dataset multiple times
+        for epoch in range(self.start_epoch, self.config.n_epochs):  # loop over the dataset multiple times
             self.metrics["epoch"] = epoch+1
             for cb in self.callbacks:
                 cb.callOnBeginTrain(self, model)

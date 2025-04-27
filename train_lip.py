@@ -43,6 +43,7 @@ if __name__ == "__main__":
     # misc
     parser.add_argument("-cp", "--checkpoint-freq", type=int, default=10, help="Number of epochs between each model save")
     parser.add_argument("-cpu", action="store_true", help="force training on CPU")
+    parser.add_argument("-r", "--resume", action="store_true", help="resume training from the latest checkpoint if available")
     args = parser.parse_args()
 
     #### Config ####
@@ -106,8 +107,53 @@ if __name__ == "__main__":
 
     DIM = X_train_out.shape[1] # dimension of the dataset (2 or 3)
 
-    #### Create model ####
-    model = select_model(args.model, DIM, args.n_layers, args.n_hidden).to(config.device)
+    #### Create model or load checkpoint ####
+    start_epoch = 0
+    checkpoint_path = None
+    
+    if args.resume:
+        # Look for existing checkpoint files to resume training
+        checkpoint_files = []
+        for filename in os.listdir(config.output_folder):
+            if filename.startswith("model_e") and filename.endswith(".pt"):
+                try:
+                    # Extract epoch number from filename (model_e{epoch}.pt)
+                    epoch_num = int(filename.split("_e")[1].split(".pt")[0])
+                    checkpoint_files.append((epoch_num, os.path.join(config.output_folder, filename)))
+                except (ValueError, IndexError):
+                    continue
+        
+        if checkpoint_files:
+            # Find the checkpoint with the highest epoch number
+            checkpoint_files.sort(key=lambda x: x[0], reverse=True)
+            start_epoch = checkpoint_files[0][0]
+            checkpoint_path = checkpoint_files[0][1]
+            print(f"Found checkpoint at epoch {start_epoch}: {checkpoint_path}")
+            
+            # Check if we've already trained the requested number of epochs
+            if start_epoch >= config.n_epochs:
+                print(f"Already trained for {start_epoch} epochs, which is >= requested {config.n_epochs} epochs.")
+                print("No further training needed. Exiting...")
+                exit(0)
+            
+            # Calculate remaining epochs to train
+            remaining_epochs = config.n_epochs - start_epoch
+            print(f"Will train for {remaining_epochs} more epochs (from epoch {start_epoch+1} to {config.n_epochs})")
+    
+    if checkpoint_path:
+        # Load model from checkpoint
+        try:
+            model = load_model(checkpoint_path, config.device)
+            print(f"Successfully loaded model from checkpoint (epoch {start_epoch})")
+        except Exception as e:
+            print(f"Error loading checkpoint: {e}")
+            print("Creating new model instead.")
+            model = select_model(args.model, DIM, args.n_layers, args.n_hidden).to(config.device)
+            start_epoch = 0  # Reset start epoch since we're using a new model
+    else:
+        # Create a new model
+        model = select_model(args.model, DIM, args.n_layers, args.n_hidden).to(config.device)
+    
     print("PARAMETERS:", count_parameters(model))
 
     #### Export point cloud for visualization ####
@@ -127,7 +173,7 @@ if __name__ == "__main__":
     callbacks = []
     callbacks.append(LoggerCB(os.path.join(config.output_folder, "log.csv")))
     if config.checkpoint_freq>0:
-        callbacks.append(CheckpointCB([x for x in range(0, config.n_epochs, config.checkpoint_freq) if x>0]))
+        callbacks.append(CheckpointCB([x for x in range(0, config.n_epochs+config.checkpoint_freq, config.checkpoint_freq) if x>0]))
         plot_domain = get_BB(X_train_on if args.unsigned else X_train_in, DIM, pad=0.5)  
         if DIM==2:
             callbacks.append(Render2DCB(config.output_folder, config.checkpoint_freq, plot_domain, res=500))
@@ -138,12 +184,25 @@ if __name__ == "__main__":
     if config.signed:
         trainer = Trainer((loader_in, loader_out), test_loader, config)
         trainer.add_callbacks(*callbacks)
+        if start_epoch > 0:
+            trainer.set_start_epoch(start_epoch)
+            print(f"Resuming training from epoch {start_epoch}")
         trainer.train_lip(model)
     else:
         trainer = Trainer((loader_on, loader_out), test_loader, config)
         trainer.add_callbacks(*callbacks)
+        if start_epoch > 0:
+            trainer.set_start_epoch(start_epoch)
+            print(f"Resuming training from epoch {start_epoch}")
         trainer.train_lip_unsigned(model)
 
     #### Save final model
     path = os.path.join(config.output_folder, "model_final.pt")
     save_model(model, path)
+    
+    # Create cpp directory if it doesn't exist
+    cpp_dir = os.path.join(config.output_folder, "cpp")
+    os.makedirs(cpp_dir, exist_ok=True)
+    
+    cpp_path = os.path.join(cpp_dir, "model_final.pt")
+    save_model_cpp(model, cpp_path, config.device)
