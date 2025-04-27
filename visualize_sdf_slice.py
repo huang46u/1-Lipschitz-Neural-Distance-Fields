@@ -10,6 +10,73 @@ from matplotlib import cm
 import math
 import ast
 
+def create_plane_from_parameters(location=[0,0,0], rotation=[0,0,0], size=1.0, resolution=100):
+    """
+    根据位置和旋转角度创建一个3D平面
+    
+    参数:
+    location (list/tuple): 平面中心位置 [x, y, z]
+    rotation (list/tuple): 平面旋转角度（欧拉角，弧度制）[rx, ry, rz]
+    size (float): 平面边长
+    resolution (int): 每边的采样分辨率
+    
+    返回:
+    points (numpy.ndarray): 采样点坐标，形状为 (resolution*resolution, 3)
+    points_grid (numpy.ndarray): 采样点的网格坐标，形状为 (resolution, resolution, 3)
+    """
+    # 将位置和旋转转换为numpy数组
+    location = np.array(location, dtype=np.float32)
+    rotation = np.array(rotation, dtype=np.float32)
+    
+    # 创建旋转矩阵（欧拉角转换为旋转矩阵）
+    # 按ZYX顺序应用欧拉角（与Blender的XYZ顺序相反）
+    rx, ry, rz = rotation
+    
+    # 围绕X轴的旋转矩阵
+    Rx = np.array([
+        [1, 0, 0],
+        [0, np.cos(rx), -np.sin(rx)],
+        [0, np.sin(rx), np.cos(rx)]
+    ])
+    
+    # 围绕Y轴的旋转矩阵
+    Ry = np.array([
+        [np.cos(ry), 0, np.sin(ry)],
+        [0, 1, 0],
+        [-np.sin(ry), 0, np.cos(ry)]
+    ])
+    
+    # 围绕Z轴的旋转矩阵
+    Rz = np.array([
+        [np.cos(rz), -np.sin(rz), 0],
+        [np.sin(rz), np.cos(rz), 0],
+        [0, 0, 1]
+    ])
+    
+    # 计算组合旋转矩阵（按Z-Y-X顺序）
+    R = Rz @ Ry @ Rx
+    
+    # 创建平面网格（中心在原点）
+    uv = np.linspace(-size/2, size/2, resolution)
+    U, V = np.meshgrid(uv, uv)
+    
+    points_grid = np.zeros((resolution, resolution, 3))
+    for i in range(resolution):
+        for j in range(resolution):
+            # 初始平面在XY平面上
+            local_point = np.array([U[i, j], V[i, j], 0.0])
+            # 应用旋转
+            rotated_point = R @ local_point
+            # 应用平移
+            world_point = rotated_point + location
+            points_grid[i, j] = world_point
+    
+    # 重塑为点列表
+    points = points_grid.reshape(-1, 3)
+    
+    return points, points_grid
+
+# 保留旧的函数以保持兼容性
 def create_plane_from_normal(normal, size=1.0, resolution=100):
     """
     根据法线方向创建一个3D平面
@@ -225,7 +292,8 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output-dir", type=str, default="meshes", help="output directory for generated files")
     parser.add_argument("-r", "--resolution", type=int, default=100, help="resolution of the slice plane")
     parser.add_argument("-s", "--size", type=float, default=1.0, help="size of the slice plane")
-    parser.add_argument("-n", "--normal", type=str, default="[0,0,1]", help="normal of the slice plane, format: [nx,ny,nz]")
+    parser.add_argument("-l", "--location", type=str, default="[0,0,0]", help="location of the slice plane center, format: [x,y,z]")
+    parser.add_argument("-rot", "--rotation", type=str, default="[0,0,0]", help="rotation of the slice plane in radians, format: [rx,ry,rz]")
     parser.add_argument("-cpu", action="store_true", help="force CPU computation")
     parser.add_argument("-bs", "--batch-size", type=int, default=1024, help="batch size for model evaluation")
     parser.add_argument("-vmin", type=float, default=None, help="minimum value for normalization")
@@ -239,28 +307,38 @@ if __name__ == "__main__":
     # 确保输出目录存在
     os.makedirs(args.output_dir, exist_ok=True)
     
-    # 解析法线参数
+    # 解析位置和旋转参数
     try:
-        normal = ast.literal_eval(args.normal)
-        if not isinstance(normal, (list, tuple)) or len(normal) != 3:
-            raise ValueError("Normal must be a tuple or list of length 3")
+        location = ast.literal_eval(args.location)
+        if not isinstance(location, (list, tuple)) or len(location) != 3:
+            raise ValueError("Location must be a tuple or list of length 3")
     except Exception as e:
-        print(f"Error parsing normal: {e}")
-        print("Using default normal [0, 0, 1]")
-        normal = [0, 0, 1]
+        print(f"Error parsing location: {e}")
+        print("Using default location [0, 0, 0]")
+        location = [0, 0, 0]
+    
+    try:
+        rotation = ast.literal_eval(args.rotation)
+        if not isinstance(rotation, (list, tuple)) or len(rotation) != 3:
+            raise ValueError("Rotation must be a tuple or list of length 3")
+    except Exception as e:
+        print(f"Error parsing rotation: {e}")
+        print("Using default rotation [0, 0, 0]")
+        rotation = [0, 0, 0]
+    
+    # 使用location和rotation参数
+    print(f"Creating slice plane with location={location}, rotation={rotation}, size={args.size}")
+    points, points_grid = create_plane_from_parameters(
+        location=location,
+        rotation=rotation, 
+        size=args.size, 
+        resolution=args.resolution
+    )
     
     # 加载模型
     device = get_device(args.cpu)
     print("DEVICE:", device)
     model = load_model(args.model, device).to(device)
-    
-    # 创建切片平面
-    print(f"Creating slice plane with normal={normal}, size={args.size}")
-    points, points_grid = create_plane_from_normal(
-        normal=normal, 
-        size=args.size, 
-        resolution=args.resolution
-    )
     
     # 评估SDF值
     print("Evaluating SDF on slice plane...")
@@ -290,5 +368,10 @@ if __name__ == "__main__":
     if args.png:
         png_path = os.path.join(args.output_dir, "slice_visualization.png")
         visualize_sdf_slice(values_grid, png_path, args.vmin, args.vmax, args.cmap, args.dpi)
+    
+    # 保存平面参数供Blender使用
+    params_path = os.path.join(args.output_dir, "slice_plane_params.npy")
+    print(f"Saving slice plane parameters to {params_path}")
+    np.savez(params_path, location=np.array(location), rotation=np.array(rotation), size=args.size)
     
     print("Done!")

@@ -67,7 +67,7 @@ mesh = bt.readMesh(meshPath, location, rotation, scale)
 normalize_object_to_unit_cube(mesh)  # 归一化物体到0-1立方体并居中到(0,0,0.5)
 
 # 设置物体最终的位置和旋转
-mesh.location = (1.12, -0.14, 0) 
+mesh.location = (1.12, -0.14, 1) 
 rotation = (90, 0, 227)
 scale = (1.5,1.5,1.5) 
 x = rotation[0] * 1.0 / 180.0 * np.pi 
@@ -88,17 +88,6 @@ object_scale = mesh.scale.copy()
 # 生成SDF切片平面的法线方向
 # 使用物体的旋转矩阵将[0,0,1]向量转换为物体坐标系中的方向
 rotation_matrix = mesh.rotation_euler.to_matrix()
-# 这里我们假设初始平面法线是Z轴方向[0,0,1]
-initial_normal = Vector((0.5, 0.0, 1))
-transformed_normal = rotation_matrix @ initial_normal
-print(f"切片平面法线方向: {transformed_normal}")
-
-
-# 在生成SDF切片数据之前，自动运行命令生成平面
-
-normal_str = f"[{transformed_normal.x},{transformed_normal.y},{transformed_normal.z}]"
-cmd = f'python visualize_sdf_slice.py output/spot/model_e300.pt -o meshes -r 200 -n "{normal_str}" -s 2.0 -png'
-print(f"执行命令: {cmd}")
 
 ## 读取切片平面 - 现在切片平面与物体坐标系对齐
 meshPath = 'meshes/slice_plane.obj'
