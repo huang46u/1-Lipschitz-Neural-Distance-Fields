@@ -12,6 +12,10 @@ def save_model(model, path):
     data = { "id": model.id, "meta" : model.meta, "state_dict" : model.state_dict()}
     torch.save(data, path)
     
+def save_model_cpp(model, path, device):
+    scripted_model = torch.jit.trace(model,torch.rand(3).to(device))
+    scripted_model.save(path)
+    
 def load_model(path, device:str):
     data = torch.load(path, map_location=device)
     model_type = data.get("id","Spectral")
